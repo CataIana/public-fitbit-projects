@@ -7,7 +7,6 @@ Type=simple
 WorkingDirectory=/opt/public-fitbit-projects
 User=<username>
 ExecStart=/usr/bin/env python3 -O -u /opt/public-fitbit-projects/Fitbit_Fetch.py
-EnvironmentFile=/opt/public-fitbit-projects/.env
 Restart=on-failure
 RestartSec=180
 
