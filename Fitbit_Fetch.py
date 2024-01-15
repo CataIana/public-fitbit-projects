@@ -61,11 +61,9 @@ class FitBitFetch:
         self.end_date: datetime = datetime.now()
         self.start_date: datetime = self.end_date - timedelta(days=AUTO_UPDATE_DATE_RANGE)
 
-    @property
     def end_date_str(self) -> str:
         return self.end_date.strftime("%Y-%m-%d")
 
-    @property
     def start_date_str(self) -> str:
         return self.start_date.strftime("%Y-%m-%d")
 
@@ -126,9 +124,10 @@ class FitBitFetch:
                             ('heart', 'HeartRate_Intraday', '1sec'), ('steps', 'Steps_Intraday', '1min')])
 
             logging.info(
-                f"Success: Bulk update complete for {self.start_date_str} to {self.end_date_str}")
+                f"Success: Bulk update complete for {self.start_date_str()} to {self.end_date_str()}")
 
     def setup_schedulers(self):
+        logging.info("Creating schedulers")
         every(1).minute.do(self.write_points)
         every(3).minutes.do(self.get_intraday_data_limit_1d)
         every(20).minutes.do(self.get_battery_level)
@@ -244,8 +243,9 @@ class FitBitFetch:
         else:
             logging.error(f"Recording battery level failed : {DEVICENAME}")
 
-    def get_intraday_data_limit_1d(self, date_str: str = end_date_str, measurement_list = [("heart", "HeartRate_Intraday", "1sec"), ("steps", "Steps_Intraday", "1min")]):
+    def get_intraday_data_limit_1d(self, date_str: str = None, measurement_list = [("heart", "HeartRate_Intraday", "1sec"), ("steps", "Steps_Intraday", "1min")]):
         """For intraday detailed data, max possible range in one day."""
+        date_str = date_str or self.end_date_str()
         for measurement in measurement_list:
             res = self.fitbit_data_request(f"1/user/-/activities/{measurement[0]}/date/{date_str}/1d/{measurement[2]}.json")
             data = res.get(f"activities-{measurement[0]}-intraday", {}).get("dataset")
@@ -271,8 +271,8 @@ class FitBitFetch:
 
     def get_daily_data_limit_30d(self, start_date: str = None, end_date: str = None):
         """Max range is 30 days, records BR, SPO2 Intraday, skin temp and HRV - 4 queries"""
-        start_date = start_date or self.start_date_str
-        end_date = end_date or self.end_date_str
+        start_date = start_date or self.start_date_str()
+        end_date = end_date or self.end_date_str()
         res_hrv = self.fitbit_data_request(f"1/user/-/hrv/date/{start_date}/{end_date}.json")
         hrv_data_list = res_hrv.get("hrv")
         if hrv_data_list:
@@ -369,8 +369,8 @@ class FitBitFetch:
     
     def get_daily_data_limit_100d(self, start_date: str = None, end_date: str = None):
         """Only for sleep data - limit 100 days - 1 query"""
-        start_date = start_date or self.start_date_str
-        end_date = end_date or self.end_date_str
+        start_date = start_date or self.start_date_str()
+        end_date = end_date or self.end_date_str()
         res_sleep = self.fitbit_data_request(f"1.2/user/-/sleep/date/{start_date}/{end_date}.json")
         sleep_data = res_sleep.get("sleep")
         if sleep_data:
@@ -448,8 +448,8 @@ class FitBitFetch:
     
     def get_daily_data_limit_365d(self, start_date: str = None, end_date: str = None):
         """Max date range 1 year, records HR zones, Activity minutes and Resting HR - 4 + 3 + 1 + 1 = 9 queries"""
-        start_date = start_date or self.start_date_str
-        end_date = end_date or self.end_date_str
+        start_date = start_date or self.start_date_str()
+        end_date = end_date or self.end_date_str()
         activity_minutes_list = [
             "minutesSedentary", "minutesLightlyActive", "minutesFairlyActive", "minutesVeryActive"]
         for activity_type in activity_minutes_list:
@@ -543,8 +543,8 @@ class FitBitFetch:
 
     def get_daily_data_limit_none(self, start_date: str = None, end_date: str = None):
         """Records SPO2 single days for the whole given period - 1 query"""
-        start_date = start_date or self.start_date_str
-        end_date = end_date or self.end_date_str
+        start_date = start_date or self.start_date_str()
+        end_date = end_date or self.end_date_str()
         data_list = self.fitbit_data_request(f"1/user/-/spo2/date/{start_date}/{end_date}.json")
         if data_list:
             for data in data_list:
@@ -571,7 +571,7 @@ class FitBitFetch:
     
     def fetch_latest_activities(self, end_date: str = None):
         """Fetches latest activities from record ( upto last 100 )"""
-        end_date = end_date or self.end_date_str
+        end_date = end_date or self.end_date_str()
         recent_activities_data = self.fitbit_data_request(f"1/user/-/activities/list.json", params={
                                                         'beforeDate': end_date, 'sort': 'desc', 'limit': 50, 'offset': 0})
         if recent_activities_data:
@@ -611,8 +611,14 @@ fitbit.startup_update()
 
 if __name__ == "__main__":
     if AUTO_DATE_RANGE:
-        while True:
-            run_pending()
-            time.sleep(30)
-            if datetime.now().day != fitbit.end_date.day:
-                fitbit.update_working_dates()
+        fitbit.setup_schedulers()
+        try:
+            while True:
+                run_pending()
+                time.sleep(30)
+                if datetime.now().day != fitbit.end_date.day:
+                    fitbit.update_working_dates()
+        except KeyboardInterrupt:
+            pass
+        finally:
+            fitbit.write_points()
